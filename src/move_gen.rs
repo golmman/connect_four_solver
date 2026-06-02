@@ -13,6 +13,7 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use crate::board::{Board, COLS, ROWS, Piece};
+    use crate::move_exec::drop_piece;
 
     #[test]
     fn test_valid_moves() {
@@ -31,7 +32,7 @@ mod tests {
     fn test_column_fills_up() {
         let mut board = Board::new();
         for _ in 0..ROWS {
-            board = board.drop_piece(0, Piece::Player1).unwrap();
+            assert!(drop_piece(&mut board, 0, Piece::Player1));
         }
         assert!(!board.is_valid_move(0));
         assert_eq!(board.valid_moves().len(), COLS - 1);
