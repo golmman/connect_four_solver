@@ -1,54 +1,53 @@
 use crate::board::{Board, Cell, Piece, COLS, ROWS};
 
-impl Board {
-    pub fn check_win(&self, piece: Piece) -> bool {
-        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)];
-        for row in 0..ROWS {
-            for col in 0..COLS {
-                if self.cells[row][col] != Cell::Piece(piece) {
-                    continue;
+pub fn check_win(board: &Board, piece: Piece) -> bool {
+    let directions = [(0, 1), (1, 0), (1, 1), (1, -1)];
+    for row in 0..ROWS {
+        for col in 0..COLS {
+            if board.cells[row][col] != Cell::Piece(piece) {
+                continue;
+            }
+            for &(dr, dc) in &directions {
+                let mut count = 1;
+                for step in 1..4 {
+                    let r = row as isize + dr * step;
+                    let c = col as isize + dc * step;
+                    if r < 0 || r >= ROWS as isize || c < 0 || c >= COLS as isize {
+                        break;
+                    }
+                    if board.cells[r as usize][c as usize] != Cell::Piece(piece) {
+                        break;
+                    }
+                    count += 1;
                 }
-                for &(dr, dc) in &directions {
-                    let mut count = 1;
-                    for step in 1..4 {
-                        let r = row as isize + dr * step;
-                        let c = col as isize + dc * step;
-                        if r < 0 || r >= ROWS as isize || c < 0 || c >= COLS as isize {
-                            break;
-                        }
-                        if self.cells[r as usize][c as usize] != Cell::Piece(piece) {
-                            break;
-                        }
-                        count += 1;
-                    }
-                    if count == 4 {
-                        return true;
-                    }
+                if count == 4 {
+                    return true;
                 }
             }
         }
-        false
     }
+    false
+}
 
-    pub fn is_full(&self) -> bool {
-        self.move_count as usize == ROWS * COLS
-    }
+pub fn is_full(board: &Board) -> bool {
+    board.move_count as usize == ROWS * COLS
+}
 
-    pub fn is_terminal(&self) -> bool {
-        self.is_full() || self.check_win(Piece::Player1) || self.check_win(Piece::Player2)
-    }
+pub fn is_terminal(board: &Board) -> bool {
+    is_full(board) || check_win(board, Piece::Player1) || check_win(board, Piece::Player2)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::board::{Board, Piece, ROWS, COLS};
     use crate::move_exec::drop_piece;
+    use super::{check_win, is_full, is_terminal};
 
     #[test]
     fn test_no_win() {
         let board = Board::new();
-        assert!(!board.check_win(Piece::Player1));
-        assert!(!board.check_win(Piece::Player2));
+        assert!(!check_win(&board, Piece::Player1));
+        assert!(!check_win(&board, Piece::Player2));
     }
 
     #[test]
@@ -60,8 +59,8 @@ mod tests {
                 drop_piece(&mut board, col, Piece::Player2);
             }
         }
-        assert!(board.check_win(Piece::Player1));
-        assert!(!board.check_win(Piece::Player2));
+        assert!(check_win(&board, Piece::Player1));
+        assert!(!check_win(&board, Piece::Player2));
     }
 
     #[test]
@@ -74,8 +73,8 @@ mod tests {
         drop_piece(&mut board, 0, Piece::Player1);
         drop_piece(&mut board, 2, Piece::Player2);
         drop_piece(&mut board, 0, Piece::Player1);
-        assert!(board.check_win(Piece::Player1));
-        assert!(!board.check_win(Piece::Player2));
+        assert!(check_win(&board, Piece::Player1));
+        assert!(!check_win(&board, Piece::Player2));
     }
 
     #[test]
@@ -87,7 +86,7 @@ mod tests {
             }
             drop_piece(&mut board, col, Piece::Player1);
         }
-        assert!(board.check_win(Piece::Player1));
+        assert!(check_win(&board, Piece::Player1));
     }
 
     #[test]
@@ -99,7 +98,7 @@ mod tests {
             }
             drop_piece(&mut board, col, Piece::Player1);
         }
-        assert!(board.check_win(Piece::Player1));
+        assert!(check_win(&board, Piece::Player1));
     }
 
     #[test]
@@ -114,8 +113,8 @@ mod tests {
             };
             drop_piece(&mut board, col, piece);
         }
-        assert!(board.is_full());
-        assert!(board.is_terminal());
+        assert!(is_full(&board));
+        assert!(is_terminal(&board));
     }
 
     #[test]
@@ -127,7 +126,7 @@ mod tests {
                 drop_piece(&mut board, col, Piece::Player2);
             }
         }
-        assert!(board.is_terminal());
+        assert!(is_terminal(&board));
     }
 
     #[test]
@@ -135,7 +134,7 @@ mod tests {
         let mut board = Board::new();
         drop_piece(&mut board, 0, Piece::Player1);
         drop_piece(&mut board, 1, Piece::Player2);
-        assert!(!board.is_full());
-        assert!(!board.is_terminal());
+        assert!(!is_full(&board));
+        assert!(!is_terminal(&board));
     }
 }

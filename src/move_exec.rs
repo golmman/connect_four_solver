@@ -1,7 +1,8 @@
 use crate::board::{Board, Cell, Piece};
+use crate::move_gen::is_valid_move;
 
 pub fn drop_piece(board: &mut Board, col: usize, piece: Piece) -> bool {
-    if !board.is_valid_move(col) {
+    if !is_valid_move(board, col) {
         return false;
     }
     let row = board.heights[col];
