@@ -1,12 +1,15 @@
 #![allow(dead_code)]
 
 mod board;
-mod move_gen;
-mod move_exec;
 mod eval;
 mod game_test;
+mod move_exec;
+mod move_gen;
 mod search;
 
 fn main() {
-    println!("Hello, world!");
+    let board = board::Board::new();
+    let result = search::solve_verbose(&board, board::Piece::Player1);
+    println!("{}", board);
+    println!("Result: {:?}", result);
 }

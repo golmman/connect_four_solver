@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::board::{Board, Piece};
 use crate::eval::{check_win, is_full};
 use crate::move_exec::drop_piece;
@@ -13,12 +15,20 @@ pub enum SearchResult {
 const INF: u32 = u32::MAX / 2;
 
 pub fn solve(board: &Board, player: Piece) -> SearchResult {
+    let mut ctx = SearchCtx {
+        nodes: 0,
+        start: Instant::now(),
+        next_report: Instant::now(),
+        verbose: false,
+    };
     let mut pn_limit = 1;
     let mut dn_limit = 1;
+    let mut pv = Vec::new();
 
     loop {
         let mut b = board.clone();
-        let (result, _, _) = df_pn(&mut b, player, true, pn_limit, dn_limit);
+        pv.clear();
+        let (result, _, _) = df_pn(&mut b, player, true, pn_limit, dn_limit, &mut ctx, &mut pv, 0);
         if let Some(r) = result {
             return r;
         }
@@ -27,13 +37,103 @@ pub fn solve(board: &Board, player: Piece) -> SearchResult {
     }
 }
 
+pub fn solve_verbose(board: &Board, player: Piece) -> SearchResult {
+    let mut ctx = SearchCtx {
+        nodes: 0,
+        start: Instant::now(),
+        next_report: Instant::now(),
+        verbose: true,
+    };
+    let mut pn_limit = 1;
+    let mut dn_limit = 1;
+    let mut pv = Vec::new();
+
+    print_header();
+
+    loop {
+        let mut b = board.clone();
+        pv.clear();
+        let (result, node_pn, node_dn) = df_pn(
+            &mut b, player, true, pn_limit, dn_limit,
+            &mut ctx, &mut pv, 0,
+        );
+        if let Some(r) = result {
+            report_final(&ctx, node_pn, node_dn, &pv, r);
+            return r;
+        }
+        report_iteration(&ctx, node_pn, node_dn, &pv);
+        pn_limit = pn_limit.saturating_mul(2).min(INF);
+        dn_limit = dn_limit.saturating_mul(2).min(INF);
+    }
+}
+
+struct SearchCtx {
+    nodes: u64,
+    start: Instant,
+    next_report: Instant,
+    verbose: bool,
+}
+
+fn report_final(ctx: &SearchCtx, node_pn: u32, node_dn: u32, pv: &[usize], result: SearchResult) {
+    let elapsed = ctx.start.elapsed();
+    let secs = elapsed.as_secs_f64();
+    let nps = if secs > 0.0 { (ctx.nodes as f64 / secs) as u64 } else { ctx.nodes };
+    println!();
+    print_info(ctx.nodes, nps, 0, node_pn, node_dn, pv, "done");
+    println!();
+    println!("result: {:?}, {} nodes in {:.3}s ({}/s)", result, ctx.nodes, secs, nps);
+}
+
+fn report_iteration(ctx: &SearchCtx, node_pn: u32, node_dn: u32, pv: &[usize]) {
+    let elapsed = ctx.start.elapsed();
+    let secs = elapsed.as_secs_f64();
+    let nps = if secs > 0.0 { (ctx.nodes as f64 / secs) as u64 } else { ctx.nodes };
+    println!();
+    print_info(ctx.nodes, nps, 0, node_pn, node_dn, pv, "iteration complete, deepening");
+    println!();
+}
+
+fn print_header() {
+    println!("{:>12} {:>10} {:>10} {:>6} {:>6}  pv", "nodes", "nps", "depth", "pn", "dn");
+    println!("{}", "-".repeat(70));
+}
+
+fn print_info(nodes: u64, nps: u64, depth: usize, pn: u32, dn: u32, pv: &[usize], tag: &str) {
+    let pv_str: Vec<String> = pv.iter().map(|c| (c + 1).to_string()).collect();
+    let pv_fmt = if pv_str.is_empty() {
+        String::new()
+    } else {
+        format!("  pv={}", pv_str.join(" "))
+    };
+    println!(
+        "{:>12} {:>10} {:>10} {:>6} {:>6}{}{}",
+        nodes, nps, depth, pn, dn, pv_fmt,
+        if tag.is_empty() { String::new() } else { format!("  ({})", tag) }
+    );
+}
+
 fn df_pn(
     board: &mut Board,
     prover: Piece,
     is_or: bool,
     pn_limit: u32,
     dn_limit: u32,
+    ctx: &mut SearchCtx,
+    pv: &mut Vec<usize>,
+    depth: usize,
 ) -> (Option<SearchResult>, u32, u32) {
+    ctx.nodes += 1;
+    if ctx.verbose && ctx.nodes % 4097 == 0 {
+        let now = Instant::now();
+        if now >= ctx.next_report {
+            let elapsed = now.duration_since(ctx.start);
+            let secs = elapsed.as_secs_f64();
+            let nps = if secs > 0.0 { (ctx.nodes as f64 / secs) as u64 } else { ctx.nodes };
+            print_info(ctx.nodes, nps, depth, pn_limit, dn_limit, pv, "");
+            ctx.next_report = now + Duration::from_millis(250);
+        }
+    }
+
     if check_win(board, prover) {
         return (Some(SearchResult::Win), 0, INF);
     }
@@ -121,13 +221,19 @@ fn df_pn(
 
         let mut child_board = board.clone();
         drop_piece(&mut child_board, moves[best_idx], current_player);
+        let pv_len = pv.len();
+        pv.push(moves[best_idx]);
         let (result, new_pn, new_dn) = df_pn(
             &mut child_board,
             prover,
             !is_or,
             child_pn_limit,
             child_dn_limit,
+            ctx,
+            pv,
+            depth + 1,
         );
+        pv.truncate(pv_len);
 
         child_pn[best_idx] = new_pn;
         child_dn[best_idx] = new_dn;
@@ -181,15 +287,14 @@ mod tests {
     #[test]
     fn test_immediate_loss() {
         let mut board = Board::new();
-        // Player2 gets 4 in a row at row 0 (cols 0-3)
-        drop_piece(&mut board, 6, Piece::Player1);  // X at (0,6)
-        drop_piece(&mut board, 0, Piece::Player2);  // O at (0,0)
-        drop_piece(&mut board, 5, Piece::Player1);  // X at (0,5)
-        drop_piece(&mut board, 1, Piece::Player2);  // O at (0,1)
-        drop_piece(&mut board, 4, Piece::Player1);  // X at (0,4)
-        drop_piece(&mut board, 2, Piece::Player2);  // O at (0,2)
-        drop_piece(&mut board, 6, Piece::Player1);  // X at (1,6)
-        drop_piece(&mut board, 3, Piece::Player2);  // O at (0,3) → Player2 wins
+        drop_piece(&mut board, 6, Piece::Player1);
+        drop_piece(&mut board, 0, Piece::Player2);
+        drop_piece(&mut board, 5, Piece::Player1);
+        drop_piece(&mut board, 1, Piece::Player2);
+        drop_piece(&mut board, 4, Piece::Player1);
+        drop_piece(&mut board, 2, Piece::Player2);
+        drop_piece(&mut board, 6, Piece::Player1);
+        drop_piece(&mut board, 3, Piece::Player2);
         assert_eq!(solve(&board, Piece::Player1), SearchResult::Loss);
     }
 }
